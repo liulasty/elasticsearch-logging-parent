@@ -113,7 +113,8 @@ public class ElasticsearchLogAppender extends AppenderBase<ILoggingEvent> {
     public void stop() {
         super.stop();
         if (elasticsearchLogClient != null) {
-            elasticsearchLogClient.close();
+            //elasticsearchLogClient.
+            //elasticsearchLogClient.close();
         }
         logger.info("ElasticsearchLogAppender stopped");
     }
