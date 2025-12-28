@@ -1,0 +1,51 @@
+{
+  "properties": [
+    {
+      "name": "es.logging.enabled",
+      "type": "java.lang.Boolean",
+      "description": "是否启用 Elasticsearch 日志收集",
+      "defaultValue": false
+    },
+    {
+      "name": "es.logging.hosts",
+      "type": "java.lang.String",
+      "description": "Elasticsearch 连接地址，支持多个：host1:9200,host2:9200",
+      "defaultValue": "localhost:9200"
+    },
+    {
+      "name": "es.logging.index",
+      "type": "java.lang.String",
+      "description": "索引名称，支持日期格式：app-logs-%{yyyy.MM.dd}",
+      "defaultValue": "app-logs"
+    },
+    {
+      "name": "es.logging.application-name",
+      "type": "java.lang.String",
+      "description": "应用名称，通常使用 ${spring.application.name}"
+    },
+    {
+      "name": "es.logging.environment",
+      "type": "java.lang.String",
+      "description": "环境标识，通常使用 ${spring.profiles.active}",
+      "defaultValue": "dev"
+    },
+    {
+      "name": "es.logging.min-level",
+      "type": "java.lang.String",
+      "description": "最低日志级别：TRACE, DEBUG, INFO, WARN, ERROR",
+      "defaultValue": "INFO"
+    },
+    {
+      "name": "es.logging.async",
+      "type": "java.lang.Boolean",
+      "description": "是否启用异步发送",
+      "defaultValue": true
+    },
+    {
+      "name": "es.logging.bulk-enabled",
+      "type": "java.lang.Boolean",
+      "description": "是否启用批量发送",
+      "defaultValue": true
+    }
+  ]
+}

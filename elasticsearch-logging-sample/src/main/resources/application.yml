@@ -1,0 +1,6 @@
+es.logging:
+  enabled: true
+  hosts: localhost:9200
+  async: false
+server:
+  port: 80
