@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
  * @author Administrator
  * @since 1.0.0
  */
-@Component
+
 public class ElasticsearchLogAppender extends AppenderBase<ILoggingEvent> {
 
     private static final Logger logger = LoggerFactory.getLogger(ElasticsearchLogAppender.class);
@@ -113,8 +113,7 @@ public class ElasticsearchLogAppender extends AppenderBase<ILoggingEvent> {
     public void stop() {
         super.stop();
         if (elasticsearchLogClient != null) {
-            //elasticsearchLogClient.
-            //elasticsearchLogClient.close();
+            elasticsearchLogClient.shutdown();
         }
         logger.info("ElasticsearchLogAppender stopped");
     }

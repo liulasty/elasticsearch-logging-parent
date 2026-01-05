@@ -128,18 +128,4 @@ public class RestClientFactory {
         }
         return httpHosts;
     }
-
-    /**
-     * 应用关闭时调用，释放资源
-     */
-    public static void close() {
-        if (client != null) {
-            try {
-                client.close();
-                logger.info("Elasticsearch RestHighLevelClient closed");
-            } catch (Exception e) {
-                logger.error("Failed to close Elasticsearch client", e);
-            }
-        }
-    }
 }

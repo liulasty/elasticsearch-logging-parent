@@ -1,0 +1,198 @@
+package com.lz.sample.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lz.sample.entry.LogEntry;
+import com.lz.sample.service.LogStorageService;
+import lombok.extern.slf4j.Slf4j;
+import org.elasticsearch.index.query.QueryBuilder;
+import org.elasticsearch.index.query.QueryBuilders;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 日志管理控制器
+ * 提供日志记录、查询、分页等功能的REST接口
+ *
+ * @author Administrator
+ */
+@Slf4j
+@RestController
+public class TestController {
+
+    @Autowired
+    private LogStorageService logStorageService;
+
+    /**
+     * 添加日志到队列
+     *
+     * @param level   日志级别
+     * @param message 日志消息内容
+     * @return 操作结果信息
+     */
+    @PostMapping("/log")
+    public String addLog(String level, String message) {
+        LogEntry logEntry = new LogEntry(level, message);
+        logStorageService.addLogToQueue(logEntry);
+        return "Log added to queue";
+    }
+
+    /**
+     * 添加空消息日志到队列
+     * 测试方法，添加一个消息为空的日志条目
+     *
+     * @return 操作结果信息
+     */
+    @PostMapping("/logNull")
+    public String addLog() {
+        String level = "test";
+        String message = "";
+        LogEntry logEntry = new LogEntry(level, message);
+        logStorageService.addLogToQueue(logEntry);
+        return "Log added to queue";
+    }
+
+    /**
+     * 分页查询ES中的文档
+     *
+     * @param indexName 索引名称
+     * @param query     查询条件（可选）
+     * @param page      页码，默认为1
+     * @param size      每页大小，默认为10
+     * @return 查询结果列表
+     */
+    @PostMapping("/search/pagination")
+    public ResponseEntity<List<Map<String, Object>>> searchWithPagination(
+            @RequestParam String indexName,
+            @RequestParam(required = false) String query,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        try {
+            QueryBuilder queryBuilder = null;
+            if (query != null && !query.trim().isEmpty()) {
+                // 实际应用中需要根据query参数构建具体的查询条件
+                queryBuilder = QueryBuilders.matchAllQuery();
+            }
+
+            List<Map<String, Object>> results = logStorageService.searchWithPagination(indexName, queryBuilder, page, size);
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            log.error("分页查询失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 查询所有文档（带分页）
+     * 查询指定索引中的所有文档，并支持分页功能
+     *
+     * @param indexName 索引名称
+     * @param page      页码，默认为1
+     * @param size      每页大小，默认为10
+     * @return 查询结果列表
+     */
+    @PostMapping("/search/all/pagination")
+    public ResponseEntity<List<Map<String, Object>>> searchAllWithPagination(
+            @RequestParam String indexName,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        try {
+            List<Map<String, Object>> results = logStorageService.searchAllWithPagination(indexName, page, size);
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            log.error("查询所有文档失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 获取指定索引的总文档数
+     *
+     * @param indexName 索引名称
+     * @param query     查询条件（可选）
+     * @return 总文档数量
+     */
+    @GetMapping("/search/total-count")
+    public ResponseEntity<Long> getTotalCount(
+            @RequestParam String indexName,
+            @RequestParam(required = false) String query) {
+
+        try {
+            QueryBuilder queryBuilder = null;
+            if (query != null && !query.trim().isEmpty()) {
+                queryBuilder = QueryBuilders.matchAllQuery();
+            }
+
+            long totalCount = logStorageService.getTotalCount(indexName, queryBuilder);
+            return ResponseEntity.ok(totalCount);
+        } catch (Exception e) {
+            log.error("获取总文档数失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 查询指定索引中的所有文档
+     * 默认查询第一页，每页10条记录
+     *
+     * @param indexName 索引名称
+     * @return 查询结果列表
+     */
+    @GetMapping("/search/all")
+    public ResponseEntity<List<Map<String, Object>>> searchAll(
+            @RequestParam String indexName) {
+
+        try {
+            List<Map<String, Object>> results = logStorageService.searchAllWithPagination(indexName, 1, 10);
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            log.error("查询所有文档失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 获取所有索引及其详细信息
+     *
+     * @return 包含所有索引详细信息的响应
+     */
+    @GetMapping("/all")
+    public ResponseEntity<List<Map<String, Object>>> getAll() {
+
+        try {
+            Map<String, Map<String, Object>> results = logStorageService.getAllIndicesWithDetails();
+            ObjectMapper objectMapper = new ObjectMapper();
+            return ResponseEntity.ok(objectMapper.valueToTree(results));
+        } catch (Exception e) {
+            log.error("查询所有文档失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * 获取所有索引名称列表
+     *
+     * @return 索引名称列表
+     */
+    @GetMapping("/allIndex")
+    public ResponseEntity<List<String>> getAllIndex() {
+
+        try {
+            List<String> results = logStorageService.getAllIndices();
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            log.error("查询所有文档失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+}

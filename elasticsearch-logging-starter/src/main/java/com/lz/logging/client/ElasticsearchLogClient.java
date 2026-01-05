@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Elasticsearch 日志客户端（ES 7.17.x）
@@ -33,77 +34,85 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - Spring Boot 2.7.x
  * - RestHighLevelClient
  */
-@Lazy
-public class ElasticsearchLogClient implements DisposableBean {
 
-    private static final Logger logger = LoggerFactory.getLogger(ElasticsearchLogClient.class);
+public class ElasticsearchLogClient {
+
+    private static final Logger logger =
+            LoggerFactory.getLogger(ElasticsearchLogClient.class);
 
     private final RestHighLevelClient client;
     private final ElasticsearchLoggingProperties properties;
-    private final IndexPatternResolver indexPatternResolver;
+    private final IndexPatternResolver indexResolver;
     private final ObjectMapper objectMapper;
 
-    private final ScheduledExecutorService scheduler;
     private final BlockingQueue<EsLogDocument> queue;
     private final List<EsLogDocument> batchBuffer;
 
-    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final ScheduledExecutorService bulkScheduler;
+    private final ScheduledExecutorService healthScheduler;
 
-    /* =========================
-       构造函数（只做初始化）
-       ========================= */
+    private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicLong dropCounter = new AtomicLong();
+
     public ElasticsearchLogClient(ElasticsearchLoggingProperties properties) {
+        this(properties, null);
+    }
+
+    public ElasticsearchLogClient(ElasticsearchLoggingProperties properties,
+                                  ObjectMapper objectMapper) {
+
         this.properties = properties;
-        this.indexPatternResolver = new IndexPatternResolver();
-        this.objectMapper = new ObjectMapper();
+        this.indexResolver = new IndexPatternResolver();
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
 
         this.client = RestClientFactory.createElasticsearchClient(properties);
 
         this.queue = new LinkedBlockingQueue<>(properties.getQueueSize());
         this.batchBuffer = new ArrayList<>(properties.getBulkSize());
 
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "es-log-bulk-consumer");
-            t.setDaemon(true);
-            return t;
-        });
+        this.bulkScheduler = Executors.newSingleThreadScheduledExecutor(r ->
+                new Thread(r, "es-log-bulk-consumer"));
 
-        logger.info("ElasticsearchLogClient bean constructed, hosts={}", properties.getHosts());
+        this.healthScheduler = Executors.newSingleThreadScheduledExecutor(r ->
+                new Thread(r, "es-log-health-check"));
+
+        logger.info("ElasticsearchLogClient initialized, hosts={}", properties.getHosts());
     }
 
-    /* =========================
-       Spring 生命周期
-       ========================= */
+    /* ================= 生命周期 ================= */
 
-    /**
-     * 容器启动完成后再启动后台任务（关键）
-     */
     @PostConstruct
     public void start() {
         if (properties.isBulkEnabled()) {
             startBulkProcessor();
         }
         startHealthCheck();
-
-        logger.info("ElasticsearchLogClient background tasks started");
     }
 
     @PreDestroy
-    @Override
-    public void destroy() {
+    public void shutdown() {
         running.set(false);
-        scheduler.shutdown();
+
+        bulkScheduler.shutdown();
+        healthScheduler.shutdown();
+
         try {
-            scheduler.awaitTermination(5, TimeUnit.SECONDS);
+            bulkScheduler.awaitTermination(5, TimeUnit.SECONDS);
+            healthScheduler.awaitTermination(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        logger.info("ElasticsearchLogClient shutdown complete");
+
+        try {
+            client.close();
+        } catch (IOException e) {
+            logger.warn("Failed to close Elasticsearch client", e);
+        }
+
+        logger.info("ElasticsearchLogClient shutdown completed");
     }
 
-    /* =========================
-       对外 API
-       ========================= */
+    /* ================= 对外 API ================= */
 
     public void sendAsync(EsLogDocument document) {
         if (!properties.isAsync()) {
@@ -111,85 +120,39 @@ public class ElasticsearchLogClient implements DisposableBean {
             return;
         }
 
-        try {
-            if (!queue.offer(document, 100, TimeUnit.MILLISECONDS)) {
-                logger.warn("ES log queue full, discard log: {}", document.getMessage());
+        if (!queue.offer(document)) {
+            long dropped = dropCounter.incrementAndGet();
+            if (dropped % 1000 == 0) {
+                logger.warn("ES log queue full, dropped {} logs", dropped);
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 
     public void sendSync(EsLogDocument document) {
         try {
-            String index = resolveIndexName();
-
-            IndexRequest request = new IndexRequest(index)
+            IndexRequest request = new IndexRequest(resolveIndex())
                     .source(objectMapper.writeValueAsBytes(document), XContentType.JSON);
-
             client.index(request, RequestOptions.DEFAULT);
         } catch (Exception e) {
             logger.error("Failed to send log to Elasticsearch", e);
         }
     }
 
-    public void sendBulk(List<EsLogDocument> documents) {
-        if (documents == null || documents.isEmpty()) {
-            return;
-        }
-
-        try {
-            String index = resolveIndexName();
-            BulkRequest bulkRequest = new BulkRequest()
-                    .timeout(properties.getTimeout() + "ms");
-
-            for (EsLogDocument doc : documents) {
-                bulkRequest.add(
-                        new IndexRequest(index)
-                                .source(objectMapper.writeValueAsBytes(doc), XContentType.JSON)
-                );
-            }
-
-            if (properties.isRefreshAfterWrite()) {
-                bulkRequest.setRefreshPolicy("wait_for");
-            }
-
-            BulkResponse response = client.bulk(bulkRequest, RequestOptions.DEFAULT);
-
-            if (response.hasFailures()) {
-                logger.error("Bulk request failures: {}", response.buildFailureMessage());
-            }
-        } catch (Exception e) {
-            logger.error("Failed to send bulk logs to Elasticsearch", e);
-        }
-    }
-
-    public boolean isHealthy() {
-        try {
-            return client.ping(RequestOptions.DEFAULT);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    public int getQueueSize() {
-        return queue.size();
-    }
-
-    /* =========================
-       内部调度逻辑
-       ========================= */
+    /* ================= 内部逻辑 ================= */
 
     private void startBulkProcessor() {
-        scheduler.scheduleWithFixedDelay(() -> {
-            if (!running.get()) {
-                return;
-            }
-            consumeBatchSafely();
-        }, properties.getBulkInterval(), properties.getBulkInterval(), TimeUnit.MILLISECONDS);
+        bulkScheduler.scheduleWithFixedDelay(
+                this::consumeBatchSafely,
+                properties.getBulkInterval(),
+                properties.getBulkInterval(),
+                TimeUnit.MILLISECONDS
+        );
     }
 
     private void consumeBatchSafely() {
+        if (!running.get()) {
+            return;
+        }
         try {
             int count = queue.drainTo(batchBuffer, properties.getBulkSize());
             if (count > 0) {
@@ -201,46 +164,48 @@ public class ElasticsearchLogClient implements DisposableBean {
         }
     }
 
+    private void sendBulk(List<EsLogDocument> batchBuffer) {
+        BulkRequest bulkRequest = new BulkRequest();
+
+        for (EsLogDocument document : batchBuffer) {
+            try {
+                String index = resolveIndex();
+                IndexRequest request = new IndexRequest(index)
+                        .source(objectMapper.writeValueAsBytes(document), XContentType.JSON);
+                bulkRequest.add(request);
+            } catch (Exception e) {
+                logger.error("Failed to serialize document for bulk request", e);
+            }
+        }
+
+        try {
+            BulkResponse response = client.bulk(bulkRequest, RequestOptions.DEFAULT);
+            if (response.hasFailures()) {
+                logger.error("Bulk request had failures: {}", response.buildFailureMessage());
+            }
+        } catch (IOException e) {
+            logger.error("Failed to execute bulk request", e);
+        }
+    }
+
     private void startHealthCheck() {
-        scheduler.scheduleWithFixedDelay(() -> {
+        healthScheduler.scheduleWithFixedDelay(() -> {
             if (!isHealthy()) {
                 logger.warn("Elasticsearch connection unhealthy");
             }
         }, 60, 60, TimeUnit.SECONDS);
     }
 
-    private String resolveIndexName() {
-        return indexPatternResolver.resolve(properties.getIndex());
+    private String resolveIndex() {
+        return indexResolver.resolve(properties.getIndex());
     }
 
-    /* =========================
-       索引管理
-       ========================= */
-
-    public void createIndexIfNotExists(String indexName) throws IOException {
-        boolean exists = client.indices()
-                .exists(new GetIndexRequest(indexName), RequestOptions.DEFAULT);
-
-        if (!exists) {
-            CreateIndexRequest create = new CreateIndexRequest(indexName);
-            create.settings(Settings.builder()
-                    .put("index.number_of_shards", 1)
-                    .put("index.number_of_replicas", 0)
-            );
-            client.indices().create(create, RequestOptions.DEFAULT);
-            logger.info("Created index: {}", indexName);
-        }
-    }
-
-    public void createIndexWithMapping(String indexName, String mappingJson) throws IOException {
-        boolean exists = client.indices()
-                .exists(new GetIndexRequest(indexName), RequestOptions.DEFAULT);
-
-        if (!exists) {
-            CreateIndexRequest create = new CreateIndexRequest(indexName);
-            create.source(mappingJson, XContentType.JSON);
-            client.indices().create(create, RequestOptions.DEFAULT);
-            logger.info("Created index with mapping: {}", indexName);
+    public boolean isHealthy() {
+        try {
+            return client.ping(RequestOptions.DEFAULT);
+        } catch (Exception e) {
+            return false;
         }
     }
 }
+

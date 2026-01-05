@@ -1,3 +1,5 @@
 # 项目排除路径
 /elasticsearch-logging-sample/target/
 /elasticsearch-logging-starter/target/
+/.idea/.gitignore
+/.idea/*
