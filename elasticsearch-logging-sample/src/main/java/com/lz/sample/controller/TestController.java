@@ -3,6 +3,7 @@ package com.lz.sample.controller;
 import com.lz.sample.entry.LogEntry;
 import com.lz.sample.service.LogStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +26,14 @@ public class TestController {
 
     @PostMapping("/logNull")
     public String addLog() {
+        String level = "test";
+        String message = "";
+        LogEntry logEntry = new LogEntry(level, message);
+        logStorageService.addLogToQueue(logEntry);
+        return "Log added to queue";
+    }
+    @GetMapping("/logNull")
+    public String adLog() {
         String level = "test";
         String message = "";
         LogEntry logEntry = new LogEntry(level, message);

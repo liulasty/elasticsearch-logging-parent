@@ -1,12 +1,10 @@
 package com.lz.sample.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lz.sample.entry.LogEntry;
 import com.lz.sample.service.LogStorageService;
 import lombok.extern.slf4j.Slf4j;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,8 +25,11 @@ import java.util.Map;
 @RestController
 public class TestController {
 
-    @Autowired
-    private LogStorageService logStorageService;
+    private final LogStorageService logStorageService;
+
+    public TestController(LogStorageService logStorageService) {
+        this.logStorageService = logStorageService;
+    }
 
     /**
      * 添加日志到队列
@@ -38,7 +39,7 @@ public class TestController {
      * @return 操作结果信息
      */
     @PostMapping("/log")
-    public String addLog(String level, String message) {
+    public String addLog(@RequestParam String level, @RequestParam String message) {
         LogEntry logEntry = new LogEntry(level, message);
         logStorageService.addLogToQueue(logEntry);
         return "Log added to queue";
@@ -76,12 +77,11 @@ public class TestController {
             @RequestParam(defaultValue = "10") int size) {
 
         try {
-            QueryBuilder queryBuilder = null;
-            if (query != null && !query.trim().isEmpty()) {
-                // 实际应用中需要根据query参数构建具体的查询条件
-                queryBuilder = QueryBuilders.matchAllQuery();
+            if (!isValidPagination(page, size)) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
             }
 
+            QueryBuilder queryBuilder = buildQuery(query);
             List<Map<String, Object>> results = logStorageService.searchWithPagination(indexName, queryBuilder, page, size);
             return ResponseEntity.ok(results);
         } catch (Exception e) {
@@ -106,6 +106,9 @@ public class TestController {
             @RequestParam(defaultValue = "10") int size) {
 
         try {
+            if (!isValidPagination(page, size)) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            }
             List<Map<String, Object>> results = logStorageService.searchAllWithPagination(indexName, page, size);
             return ResponseEntity.ok(results);
         } catch (Exception e) {
@@ -127,11 +130,7 @@ public class TestController {
             @RequestParam(required = false) String query) {
 
         try {
-            QueryBuilder queryBuilder = null;
-            if (query != null && !query.trim().isEmpty()) {
-                queryBuilder = QueryBuilders.matchAllQuery();
-            }
-
+            QueryBuilder queryBuilder = buildQuery(query);
             long totalCount = logStorageService.getTotalCount(indexName, queryBuilder);
             return ResponseEntity.ok(totalCount);
         } catch (Exception e) {
@@ -166,12 +165,11 @@ public class TestController {
      * @return 包含所有索引详细信息的响应
      */
     @GetMapping("/all")
-    public ResponseEntity<List<Map<String, Object>>> getAll() {
+    public ResponseEntity<Map<String, Map<String, Object>>> getAll() {
 
         try {
             Map<String, Map<String, Object>> results = logStorageService.getAllIndicesWithDetails();
-            ObjectMapper objectMapper = new ObjectMapper();
-            return ResponseEntity.ok(objectMapper.valueToTree(results));
+            return ResponseEntity.ok(results);
         } catch (Exception e) {
             log.error("查询所有文档失败", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -195,4 +193,14 @@ public class TestController {
         }
     }
 
+    private boolean isValidPagination(int page, int size) {
+        return page >= 1 && size >= 1 && size <= 1000;
+    }
+
+    private QueryBuilder buildQuery(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return null;
+        }
+        return QueryBuilders.queryStringQuery(query).defaultField("message");
+    }
 }

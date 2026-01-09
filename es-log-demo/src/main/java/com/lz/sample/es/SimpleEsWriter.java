@@ -12,24 +12,19 @@ import org.apache.http.client.CredentialsProvider;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthRequest;
 import org.elasticsearch.action.admin.cluster.health.ClusterHealthResponse;
-import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.admin.indices.get.GetIndexRequest;
 import org.elasticsearch.action.admin.indices.get.GetIndexResponse;
-import org.elasticsearch.action.admin.indices.stats.IndicesStatsRequest;
-import org.elasticsearch.action.admin.indices.stats.IndicesStatsResponse;
-import org.elasticsearch.action.admin.indices.stats.ShardStats;
+import org.elasticsearch.action.bulk.BulkRequest;
+import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.*;
-import org.elasticsearch.cluster.health.ClusterIndexHealth;
 import org.elasticsearch.cluster.metadata.AliasMetadata;
 import org.elasticsearch.cluster.metadata.MappingMetadata;
-import org.elasticsearch.common.bytes.BytesArray;
 import org.elasticsearch.common.collect.ImmutableOpenMap;
-import org.elasticsearch.common.io.stream.StreamInput;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
@@ -38,7 +33,9 @@ import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.xcontent.XContentType;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.time.Instant;
 import java.util.*;
 
 /**
@@ -46,7 +43,7 @@ import java.util.*;
  * 目标：验证Java到ES的连通性
  */
 @Slf4j
-public class SimpleEsWriter {
+public class SimpleEsWriter implements Closeable {
 
     private final RestHighLevelClient client;
     
@@ -214,7 +211,7 @@ public class SimpleEsWriter {
             JsonNode responseJson = OBJECT_MAPPER.readTree(response.getEntity().getContent());
 
             // 获取索引的统计信息
-            JsonNode indexNode = responseJson.get(indexName);
+            JsonNode indexNode = responseJson.path("indices").path(indexName);
             if (indexNode != null) {
                 JsonNode primaries = indexNode.get("primaries");
                 JsonNode total = indexNode.get("total");
@@ -249,17 +246,56 @@ public class SimpleEsWriter {
         return stats;
     }
 
+    public boolean bulkWrite(String indexName, List<Map<String, Object>> logDataList) {
+        if (logDataList == null || logDataList.isEmpty()) {
+            return true;
+        }
+
+        BulkRequest bulkRequest = new BulkRequest();
+        for (Map<String, Object> doc : logDataList) {
+            if (doc == null || doc.isEmpty()) {
+                continue;
+            }
+            IndexRequest request = new IndexRequest(indexName).source(doc);
+            bulkRequest.add(request);
+        }
+
+        if (bulkRequest.numberOfActions() == 0) {
+            return true;
+        }
+
+        try {
+            BulkResponse response = client.bulk(bulkRequest, RequestOptions.DEFAULT);
+            if (response.hasFailures()) {
+                log.warn("批量写入存在失败: {}", response.buildFailureMessage());
+            }
+            return !response.hasFailures();
+        } catch (Exception e) {
+            log.error("批量写入失败", e);
+            return false;
+        }
+    }
+
     /**
      * 获取分片总数
      */
     private int getShardCount(String indexName) {
         try {
-            Request request = new Request("GET", "/" + indexName + "/_shards");
-            Response response = client.getLowLevelClient().performRequest(request);
+            JsonNode shardsNode = getShardsNode(indexName);
+            if (shardsNode == null || shardsNode.isMissingNode() || !shardsNode.isObject()) {
+                return 0;
+            }
 
-            JsonNode responseJson = OBJECT_MAPPER.readTree(response.getEntity().getContent());
-
-            return responseJson.size();
+            int total = 0;
+            Iterator<String> shardIds = shardsNode.fieldNames();
+            while (shardIds.hasNext()) {
+                String shardId = shardIds.next();
+                JsonNode copies = shardsNode.get(shardId);
+                if (copies != null && copies.isArray()) {
+                    total += copies.size();
+                }
+            }
+            return total;
         } catch (Exception e) {
             log.warn("获取分片信息失败: {}", e.getMessage());
             return 0;
@@ -270,18 +306,25 @@ public class SimpleEsWriter {
      * 获取成功分片数
      */
     private int getSuccessfulShards(String indexName) {
-        // 这里可以实现获取成功分片数的逻辑
-        // 通常需要解析_shards端点返回的信息
         try {
-            Request request = new Request("GET", "/" + indexName + "/_shards");
-            Response response = client.getLowLevelClient().performRequest(request);
-
-            JsonNode responseJson = OBJECT_MAPPER.readTree(response.getEntity().getContent());
-
             int successful = 0;
-            for (JsonNode shard : responseJson) {
-                if (shard.get("state").asText().equals("STARTED")) {
-                    successful++;
+            JsonNode shardsNode = getShardsNode(indexName);
+            if (shardsNode == null || shardsNode.isMissingNode() || !shardsNode.isObject()) {
+                return 0;
+            }
+
+            Iterator<String> shardIds = shardsNode.fieldNames();
+            while (shardIds.hasNext()) {
+                String shardId = shardIds.next();
+                JsonNode copies = shardsNode.get(shardId);
+                if (copies == null || !copies.isArray()) {
+                    continue;
+                }
+
+                for (JsonNode copy : copies) {
+                    if ("STARTED".equals(copy.path("state").asText())) {
+                        successful++;
+                    }
                 }
             }
             return successful;
@@ -296,15 +339,24 @@ public class SimpleEsWriter {
      */
     private int getFailedShards(String indexName) {
         try {
-            Request request = new Request("GET", "/" + indexName + "/_shards");
-            Response response = client.getLowLevelClient().performRequest(request);
-
-            JsonNode responseJson = OBJECT_MAPPER.readTree(response.getEntity().getContent());
-
             int failed = 0;
-            for (JsonNode shard : responseJson) {
-                if (!shard.get("state").asText().equals("STARTED")) {
-                    failed++;
+            JsonNode shardsNode = getShardsNode(indexName);
+            if (shardsNode == null || shardsNode.isMissingNode() || !shardsNode.isObject()) {
+                return 0;
+            }
+
+            Iterator<String> shardIds = shardsNode.fieldNames();
+            while (shardIds.hasNext()) {
+                String shardId = shardIds.next();
+                JsonNode copies = shardsNode.get(shardId);
+                if (copies == null || !copies.isArray()) {
+                    continue;
+                }
+
+                for (JsonNode copy : copies) {
+                    if (!"STARTED".equals(copy.path("state").asText())) {
+                        failed++;
+                    }
                 }
             }
             return failed;
@@ -312,6 +364,13 @@ public class SimpleEsWriter {
             log.warn("获取失败分片数失败: {}", e.getMessage());
             return 0;
         }
+    }
+
+    private JsonNode getShardsNode(String indexName) throws IOException {
+        Request request = new Request("GET", "/" + indexName + "/_shards");
+        Response response = client.getLowLevelClient().performRequest(request);
+        JsonNode responseJson = OBJECT_MAPPER.readTree(response.getEntity().getContent());
+        return responseJson.path("indices").path(indexName).path("shards");
     }
 
     /**
@@ -417,8 +476,7 @@ public class SimpleEsWriter {
             // 2. 设置文档ID（如果不设置，ES会自动生成）
             // request.id("custom-id");
 
-            // 3. 设置文档内容（JSON格式）
-            request.source(logData, XContentType.JSON);
+            request.source(logData);
 
             // 4. 执行写入
             log.debug("正在写入文档到索引: {}", indexName);
@@ -550,7 +608,7 @@ public class SimpleEsWriter {
         Map<String, Object> log = new HashMap<>();
 
         // 基本日志字段
-        log.put("@timestamp", new java.util.Date());
+        log.put("@timestamp", Instant.now().toString());
         log.put("level", "INFO");
         log.put("logger", "com.xxx.es.client.SimpleEsWriter");
         log.put("message", "这是一条测试日志，用于验证ES连通性");
