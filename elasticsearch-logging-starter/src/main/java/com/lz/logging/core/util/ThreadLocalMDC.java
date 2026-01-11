@@ -1,4 +1,4 @@
-package com.lz.logging.support;
+package com.lz.logging.core.util;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -95,23 +95,5 @@ public class ThreadLocalMDC {
      */
     public static boolean containsKey(String key) {
         return MDC_HOLDER.get().containsKey(key);
-    }
-
-    /**
-     * 获取当前线程 MDC 映射中键值对的数量
-     *
-     * @return MDC 映射中的键值对数量
-     */
-    public static int size() {
-        return MDC_HOLDER.get().size();
-    }
-
-    /**
-     * 检查当前线程的 MDC 映射是否为空
-     *
-     * @return 如果映射为空返回 true，否则返回 false
-     */
-    public static boolean isEmpty() {
-        return MDC_HOLDER.get().isEmpty();
     }
 }

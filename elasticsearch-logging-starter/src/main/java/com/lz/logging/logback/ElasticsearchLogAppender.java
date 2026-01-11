@@ -2,12 +2,11 @@ package com.lz.logging.logback;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
-import com.lz.logging.autoconfigure.ElasticsearchLoggingProperties;
-import com.lz.logging.client.ElasticsearchLogClient;
-import com.lz.logging.model.EsLogDocument;
+import com.lz.logging.config.ElasticsearchLoggingProperties;
+import com.lz.logging.core.client.ElasticsearchLogClient;
+import com.lz.logging.core.model.EsLogDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 /**
  * Elasticsearch Logback Appender - 将日志发送到 Elasticsearch 的自定义 Appender
@@ -58,7 +57,7 @@ public class ElasticsearchLogAppender extends AppenderBase<ILoggingEvent> {
     public ElasticsearchLogAppender(ElasticsearchLogClient elasticsearchLogClient,
                                     ElasticsearchLoggingProperties properties) {
         this.elasticsearchLogClient = elasticsearchLogClient;
-        this.logEventConverter = new LogEventConverter();
+        this.logEventConverter = new LogEventConverter(properties);
         // 根据配置设置异步模式
         this.async = properties.isAsync();
     }
@@ -98,60 +97,5 @@ public class ElasticsearchLogAppender extends AppenderBase<ILoggingEvent> {
     @Override
     public void start() {
         super.start();
-        if (elasticsearchLogClient == null) {
-            addError("ElasticsearchLogClient is null, appender will not start");
-        }
-    }
-
-    /**
-     * 停止 Appender
-     *
-     * 在 Appender 停止时，关闭 Elasticsearch 客户端连接，
-     * 释放相关资源，并记录停止日志。
-     */
-    @Override
-    public void stop() {
-        super.stop();
-        if (elasticsearchLogClient != null) {
-            elasticsearchLogClient.shutdown();
-        }
-        logger.info("ElasticsearchLogAppender stopped");
-    }
-
-    // Getter 和 Setter 方法
-    /**
-     * 设置 Elasticsearch 日志客户端
-     *
-     * @param elasticsearchLogClient Elasticsearch 日志客户端实例
-     */
-    public void setElasticsearchLogClient(ElasticsearchLogClient elasticsearchLogClient) {
-        this.elasticsearchLogClient = elasticsearchLogClient;
-    }
-
-    /**
-     * 获取 Elasticsearch 日志客户端
-     *
-     * @return 当前使用的 Elasticsearch 日志客户端实例
-     */
-    public ElasticsearchLogClient getElasticsearchLogClient() {
-        return elasticsearchLogClient;
-    }
-
-    /**
-     * 设置异步发送模式
-     *
-     * @param async true 表示启用异步发送，false 表示使用同步发送
-     */
-    public void setAsync(boolean async) {
-        this.async = async;
-    }
-
-    /**
-     * 获取异步发送模式状态
-     *
-     * @return true 表示当前为异步发送模式，false 表示为同步发送模式
-     */
-    public boolean isAsync() {
-        return async;
     }
 }

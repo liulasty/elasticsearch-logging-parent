@@ -1,9 +1,8 @@
-package com.lz.logging.autoconfigure;
+package com.lz.logging.config;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.core.Appender;
-import com.lz.logging.client.ElasticsearchLogClient;
+import com.lz.logging.core.client.ElasticsearchLogClient;
 import com.lz.logging.logback.ElasticsearchLogAppender;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationRunner;
@@ -12,8 +11,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import javax.annotation.PreDestroy;
 
 /**
  * Elasticsearch Logging 自动配置类
@@ -100,33 +97,11 @@ public class ElasticsearchLoggingAutoConfiguration {
             Logger rootLogger =
                     context.getLogger(Logger.ROOT_LOGGER_NAME);
 
-            Appender<?> existing =
-                    rootLogger.getAppender(APPENDER_NAME);
-
-            if (existing == null) {
-                if (!appender.isStarted()) {
-                    appender.start();
-                }
+            // 防止重复添加
+            if (rootLogger.getAppender(APPENDER_NAME) == null) {
+                appender.start();
                 rootLogger.addAppender(appender);
             }
         };
-    }
-
-    /**
-     * Spring 容器关闭时，安全停止 Appender
-     */
-    @PreDestroy
-    public void shutdown() {
-        LoggerContext context =
-                (LoggerContext) LoggerFactory.getILoggerFactory();
-        Logger rootLogger =
-                context.getLogger(Logger.ROOT_LOGGER_NAME);
-
-        Appender<?> appender =
-                rootLogger.getAppender(APPENDER_NAME);
-
-        if (appender != null && appender.isStarted()) {
-            appender.stop();
-        }
     }
 }

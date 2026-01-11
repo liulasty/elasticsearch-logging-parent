@@ -1,4 +1,4 @@
-package com.lz.logging.logback;
+package com.lz.logging.logback.helper;
 
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
@@ -66,4 +66,3 @@ public interface LogbackConfigurationHelper {
      */
     void stopAppender(Appender appender);
 }
-

@@ -1,9 +1,11 @@
 es.logging:
   enabled: true
   hosts: localhost:9200
-  async: false
+  async: false            # 开启同步模式
+  connect-timeout: 500    # 连接超时 500ms (建议设置短一点，避免阻塞业务太久)
+  socket-timeout: 2000    # 读写超时 2s
 server:
-  port: 80
+  port: 8080
 logging:
   level:
     org.springframework.beans.factory.support: info

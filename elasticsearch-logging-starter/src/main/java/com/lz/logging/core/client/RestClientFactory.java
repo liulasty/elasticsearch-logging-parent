@@ -1,6 +1,6 @@
-package com.lz.logging.client;
+package com.lz.logging.core.client;
 
-import com.lz.logging.autoconfigure.ElasticsearchLoggingProperties;
+import com.lz.logging.config.ElasticsearchLoggingProperties;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -12,6 +12,9 @@ import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Elasticsearch RestHighLevelClient 工厂
@@ -98,34 +101,21 @@ public class RestClientFactory {
                 requestConfigBuilder
                         .setConnectTimeout(properties.getConnectTimeout())
                         .setSocketTimeout(properties.getSocketTimeout())
-                        .setConnectionRequestTimeout(
-                                properties.getConnectionRequestTimeout()
-                        )
         );
-
-        // 开启 HTTP 压缩
-        builder.setCompressionEnabled(true);
 
         return new RestHighLevelClient(builder);
     }
 
-    /**
-     * 解析 hosts 配置
-     * 示例：127.0.0.1:9200,127.0.0.2:9200
-     */
     private static HttpHost[] parseHosts(String hosts, String scheme) {
-        String[] hostArray = hosts.split(",");
-        HttpHost[] httpHosts = new HttpHost[hostArray.length];
-
-        for (int i = 0; i < hostArray.length; i++) {
-            String hostPort = hostArray[i].trim();
-            String[] parts = hostPort.split(":");
-
-            String host = parts[0];
-            int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 9200;
-
-            httpHosts[i] = new HttpHost(host, port, scheme);
-        }
-        return httpHosts;
+        return Arrays.stream(hosts.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> {
+                    String[] parts = s.split(":");
+                    String host = parts[0];
+                    int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 9200;
+                    return new HttpHost(host, port, scheme);
+                })
+                .toArray(HttpHost[]::new);
     }
 }

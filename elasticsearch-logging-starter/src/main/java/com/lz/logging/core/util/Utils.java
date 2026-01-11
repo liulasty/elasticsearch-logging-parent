@@ -1,4 +1,4 @@
-package com.lz.logging.support;
+package com.lz.logging.core.util;
 
 import java.lang.management.ManagementFactory;
 

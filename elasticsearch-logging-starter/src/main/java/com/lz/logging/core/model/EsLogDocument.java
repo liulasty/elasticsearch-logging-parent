@@ -1,9 +1,8 @@
-package com.lz.logging.model;
+package com.lz.logging.core.model;
 
 import com.alibaba.fastjson.annotation.JSONField;
 
 import java.io.Serializable;
-import java.time.Instant;
 import org.slf4j.MDC;
 
 public class EsLogDocument implements Serializable {
@@ -69,7 +68,7 @@ public class EsLogDocument implements Serializable {
     /**
      * MDC 上下文信息
      */
-    private MDC mdc;
+    private java.util.Map<String, String> mdc;
 
     /**
      * 日志参数
@@ -99,19 +98,10 @@ public class EsLogDocument implements Serializable {
     /**
      * 自定义字段
      */
-    private String customFields;
-
-    /**
-     * 主机名
-     */
-    private String hostname;
-
-    /**
-     * 进程ID
-     */
-    private String pid;
+    private java.util.Map<String, Object> extra;
 
     // Getters and Setters
+
     public String getTimestamp() {
         return timestamp;
     }
@@ -200,11 +190,11 @@ public class EsLogDocument implements Serializable {
         this.stackTrace = stackTrace;
     }
 
-    public MDC getMdc() {
+    public java.util.Map<String, String> getMdc() {
         return mdc;
     }
 
-    public void setMdc(MDC mdc) {
+    public void setMdc(java.util.Map<String, String> mdc) {
         this.mdc = mdc;
     }
 
@@ -248,108 +238,11 @@ public class EsLogDocument implements Serializable {
         this.requestMethod = requestMethod;
     }
 
-    public String getCustomFields() {
-        return customFields;
+    public java.util.Map<String, Object> getExtra() {
+        return extra;
     }
 
-    public void setCustomFields(String customFields) {
-        this.customFields = customFields;
-    }
-
-    public String getHostname() {
-        return hostname;
-    }
-
-    public void setHostname(String hostname) {
-        this.hostname = hostname;
-    }
-
-    public String getPid() {
-        return pid;
-    }
-
-    public void setPid(String pid) {
-        this.pid = pid;
-    }
-
-    /**
-     * 构建器模式
-     */
-    public static class Builder {
-        private final EsLogDocument document = new EsLogDocument();
-
-        public Builder timestamp(String timestamp) {
-            document.timestamp = timestamp;
-            return this;
-        }
-
-        public Builder timestamp(Instant instant) {
-            document.timestamp = instant.toString();
-            return this;
-        }
-
-        public Builder level(String level) {
-            document.level = level;
-            return this;
-        }
-
-        public Builder thread(String thread) {
-            document.thread = thread;
-            return this;
-        }
-
-        public Builder logger(String logger) {
-            document.logger = logger;
-            return this;
-        }
-
-        public Builder message(String message) {
-            document.message = message;
-            return this;
-        }
-
-        public Builder traceId(String traceId) {
-            document.traceId = traceId;
-            return this;
-        }
-
-        public Builder spanId(String spanId) {
-            document.spanId = spanId;
-            return this;
-        }
-
-        public Builder application(String application) {
-            document.application = application;
-            return this;
-        }
-
-        public Builder environment(String environment) {
-            document.environment = environment;
-            return this;
-        }
-
-        public Builder exception(String exception) {
-            document.exception = exception;
-            return this;
-        }
-
-        public Builder stackTrace(String stackTrace) {
-            document.stackTrace = stackTrace;
-            return this;
-        }
-
-        public Builder hostname(String hostname) {
-            document.hostname = hostname;
-            return this;
-        }
-
-        public Builder pid(String pid) {
-            document.pid = pid;
-            return this;
-        }
-
-        public EsLogDocument build() {
-            return document;
-        }
+    public void setExtra(java.util.Map<String, Object> extra) {
+        this.extra = extra;
     }
 }

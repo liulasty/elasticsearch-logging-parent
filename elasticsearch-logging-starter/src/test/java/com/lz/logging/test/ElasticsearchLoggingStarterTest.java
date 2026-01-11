@@ -1,7 +1,7 @@
 package com.lz.logging.test;
 
-import com.lz.logging.autoconfigure.ElasticsearchLoggingAutoConfiguration;
-import com.lz.logging.autoconfigure.ElasticsearchLoggingProperties;
+import com.lz.logging.config.ElasticsearchLoggingAutoConfiguration;
+import com.lz.logging.config.ElasticsearchLoggingProperties;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
