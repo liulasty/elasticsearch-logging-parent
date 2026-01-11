@@ -32,34 +32,48 @@ import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.sort.SortOrder;
 import org.elasticsearch.xcontent.XContentType;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.io.Closeable;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
+
+import org.apache.http.util.EntityUtils;
 
 /**
  * Elasticsearch 简单写入工具
  * 目标：验证Java到ES的连通性
  */
 @Slf4j
+@Component
 public class SimpleEsWriter implements Closeable {
 
-    private final RestHighLevelClient client;
+    private RestHighLevelClient client;
     
     private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder().build();
 
-    /**
-     * 构造方法 - 使用默认配置连接本地ES
-     */
-    public SimpleEsWriter() {
-        this("localhost", 9200, null, null);
-    }
+    @Value("${es.host:localhost}")
+    private String host;
+
+    @Value("${es.port:9200}")
+    private int port;
+
+    @Value("${es.username:}")
+    private String username;
+
+    @Value("${es.password:}")
+    private String password;
 
     /**
-     * 构造方法 - 自定义连接参数
+     * 初始化ES客户端
+     * 该方法作为一个Bean工厂方法，将RestHighLevelClient注册到Spring容器中
      */
-    public SimpleEsWriter(String host, int port, String username, String password) {
+    @Bean(destroyMethod = "close")
+    public RestHighLevelClient restHighLevelClient() {
         log.info("正在初始化ES客户端，连接 {}:{}", host, port);
 
         // 构建RestClientBuilder
@@ -84,7 +98,7 @@ public class SimpleEsWriter implements Closeable {
             httpClientBuilder.setMaxConnPerRoute(10);
 
             // 如果有认证信息，设置认证
-            if (username != null && password != null) {
+            if (username != null && !username.trim().isEmpty() && password != null && !password.trim().isEmpty()) {
                 log.info("启用ES基础认证");
                 final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
                 credentialsProvider.setCredentials(
@@ -100,6 +114,31 @@ public class SimpleEsWriter implements Closeable {
         // 创建高级客户端
         this.client = new RestHighLevelClient(builder);
         log.info("ES客户端初始化完成");
+        return this.client;
+    }
+
+    /**
+     * 执行通用低级请求
+     * 
+     * @param method HTTP方法 (GET, POST, PUT, DELETE 等)
+     * @param endpoint 请求端点 (例如 "/_cat/indices")
+     * @param jsonBody 请求体JSON字符串，如果没有则传null
+     * @return 响应体字符串
+     */
+    public String executeRequest(String method, String endpoint, String jsonBody) {
+        try {
+            Request request = new Request(method, endpoint);
+            if (jsonBody != null && !jsonBody.isEmpty()) {
+                request.setJsonEntity(jsonBody);
+            }
+            Response response = client.getLowLevelClient().performRequest(request);
+            String responseBody = EntityUtils.toString(response.getEntity());
+            log.info("Execute {} {}: Status={}, Response={}", method, endpoint, response.getStatusLine().getStatusCode(), responseBody);
+            return responseBody;
+        } catch (IOException e) {
+            log.error("Failed to execute {} {}", method, endpoint, e);
+            return "Error: " + e.getMessage();
+        }
     }
 
     /**
@@ -590,9 +629,13 @@ public class SimpleEsWriter implements Closeable {
     /**
      * 关闭客户端连接
      */
+    @Override
     public void close() {
+        // Spring容器管理Bean的生命周期，通常不需要手动调用close，
+        // 但如果实现了Closeable接口，Spring销毁Bean时会调用此方法。
         if (client != null) {
             try {
+                // 避免重复关闭（RestHighLevelClient.close() 是幂等的，但加个日志更好）
                 client.close();
                 log.info("ES客户端已关闭");
             } catch (IOException e) {

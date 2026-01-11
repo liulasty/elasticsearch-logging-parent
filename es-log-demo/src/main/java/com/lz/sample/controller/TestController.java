@@ -193,10 +193,25 @@ public class TestController {
         }
     }
 
+    /**
+     * 验证分页参数是否有效
+     * 检查页码和每页大小是否符合要求：页码>=1，每页大小在1-1000之间
+     *
+     * @param page 当前页码，必须大于等于1
+     * @param size 每页大小，必须大于等于1且小于等于1000
+     * @return 参数有效返回true，否则返回false
+     */
     private boolean isValidPagination(int page, int size) {
         return page >= 1 && size >= 1 && size <= 1000;
     }
 
+    /**
+     * 构建Elasticsearch查询对象
+     * 根据输入的查询字符串创建QueryBuilder，如果查询字符串为空则返回null
+     *
+     * @param query 查询字符串，用于构建Elasticsearch查询条件
+     * @return QueryBuilder对象，如果查询字符串为空则返回null
+     */
     private QueryBuilder buildQuery(String query) {
         if (query == null || query.trim().isEmpty()) {
             return null;

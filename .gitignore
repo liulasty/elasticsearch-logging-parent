@@ -3,3 +3,11 @@
 /elasticsearch-logging-starter/target/
 /.idea/.gitignore
 /.idea/*
+
+# 忽略文件 target
+**/target/**
+**/node_modules/**
+**/dist/**
+
+/.vscode/*
+
